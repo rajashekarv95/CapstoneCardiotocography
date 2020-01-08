@@ -1,0 +1,430 @@
+#' ---
+#' title: "Cardiotocography Project Report"
+#' author: "Rajashekar Vasanth"
+#' date: "5th January 2020"
+#' output:
+#'   pdf_document: default
+#'   html_document: default
+#' ---
+#' 
+## ----setup, include=FALSE------------------------------------------------
+knitr::opts_chunk$set(echo = TRUE)
+
+#' 
+#' ## Introduction
+#' ### 1. Introduction to Cardiotocography
+#' Cardiotocography (CTG) is a technical means of recording the fetal heartbeat and the uterine contractions during pregnancy. The machine used to perform the monitoring is called a cardiotocograph, more commonly known as an electronic fetal monitor (EFM).
+#' 
+#' Fetal monitoring was invented by Doctors Alan Bradfield, Orvan Hess and Edward Hon. A refined (antepartal, non-invasive, beat-to-beat) version (cardiotocograph) was later developed for Hewlett Packard by Konrad Hammacher.
+#' 
+#' ###The basic concepts of CTG
+#' 
+#' Cardiotocography (CTG) is a simultaneous recording of Fetal Heart Rate (FHR) and Uterine Contractions (UC) and it is one of the most common diagnostic techniques to evaluate maternal and fetal well-being during pregnancy and before delivery. By observing the Cardiotocography trace patterns doctors can understand the state of the fetus. There are several signal processing and computer programming based techniques for interpreting a typical CTG data. Even a few decades after the introduction of Cardiotocography in clinical practice, the predictive capacity of these methods remains controversial and still inaccurate. FHR patterns are observed manually by obstetricians during the process of CTG analyses. For the last three decades, great interest has been paid to the fetal heart rate baseline and its frequency analysis, Fetal Heart Rate (FHR) monitoring remains as a widely used method for detecting changes in fetal oxygenation that can occur during labor. 
+#' 
+#' Yet deaths and long-term disablement from intrapartum hypoxia remain an important cause of suffering for parents and families, even in industrialized countries. Confidential inquiries have highlighted that as much as 50% of these deaths could have been avoided because they were caused by non-recognition of abnormal FHR patterns, poor communication between staff, or delay in taking appropriate action. Computation and other data mining techniques can be used to analyze and classify the CTG data to avoid human mistakes and to assist doctors to take a decision.
+#' 
+#' ### Dataset Information
+#' 2126 fetal cardiotocograms (CTGs) were automatically processed and the respective diagnostic features measured. The CTGs were also classified by three expert obstetricians and a consensus classification label assigned to each of them. Classification was both with respect to the fetal state (N, S, P). Therefore the dataset can be used for 3-class experiments.
+#' 
+#' ### Classification Variables
+#' 
+#' Updated 2015 FIGO(https://www.figo.org/about-us) Intrapartum Fetal Monitoring Guidelines - these are the metrics that are currently used by obstetricians to evaluate and monitor. Let us see how accurately we can use algorithms to learn the same and detect abnormalities.
+#' 
+#' FIGO has recently modified the guidelines on intrapartum fetal monitoring, proposing following interpretation:
+#' 
+#' 1. Normal
+#' No hypoxia/acidosis, no intervention necessary to improve fetal oxygenation state:
+#' - Baseline 110-160 bpm
+#' - Variability 5-25 bpm
+#' - No repetitive decelerations (decelerations are defined as repetitive when associated with > 50% contractions)
+#' 
+#' 2. Suspicious
+#' Low probability of hypoxia/acidosis, warrants action to correct reversible causes if identified, close monitoring or adjunctive methods:
+#' - Lacking at least one characteristic of normality, but with no pathological features.
+#' 
+#' 3. Pathological
+#' High probability of hypoxia/acidosis, requires immediate action to correct reversible causes, adjunctive methods, or if this is not possible expedite delivery. In acute situations immediate delivery should be accomplished
+#' - Baseline <100 bpm
+#' - Reduced or increased variability or sinusoidal pattern
+#' - Repetitive late or prolonged decelerations for > 30 min, or > 20 min if reduced variability (decelerations are defined as repetitive when associated with > 50% contractions)
+#' - Deceleration > 5 min
+#' 
+#' ##Importing the required libraries
+#' 
+#' Writing a function to install and import libraries.
+#' 
+## ----fn_install_packages, message=FALSE----------------------------------
+#Writing a function to install and import libraries.
+fn_install_packages <- function(library_name) {
+#Check if the library is present, if not install it
+   if(!require(library_name,character.only=TRUE)) 
+     install.packages(library_name,character.only=TRUE,
+                      repos = "http://cran.us.r-project.org")
+  
+#Import the library
+   library(library_name,character.only=TRUE)
+}
+
+#' 
+#' Creating a list of libraries required and importing all required libraries
+#' 
+## ----load_libraries,message=FALSE----------------------------------------
+#Defining a list of required libraries
+library_list <- c("ggplot2","reshape2","elasticnet","brnn","pls",
+                  "ipred","plyr","e1071","xgboost","knitr","reshape",
+                  "gam","kernlab","randomForest","tidyverse","caret","data.table",
+                 "matrixStats","corrplot","rpart","nnet","htmltools","klaR",
+                 "mda","RSNNS","adabag")
+
+#Installing and importing the libraries
+for(lib in library_list){
+  fn_install_packages(lib)
+  }
+
+
+#' 
+#' 
+#' Importing the data file from GIT and looking the structure of the imported data. We see that the data consists of 2126 rows and 25 columns. All the columns are either of the type INT or NUM. This makes cleansing slightly easier. We see that the first column is an exact copy of the second. Let us confirm that by conducting a test.
+#' 
+## ----start---------------------------------------------------------------
+#Reading the datafile from GITHUB
+ctg <- read.table(
+  "https://raw.githubusercontent.com/rajashekarv95/cardiotocography_edx_capstone/master/ctg_new.csv",
+  header = TRUE,sep = ",")
+
+#Examining the structure of the datafile
+str(ctg)
+
+
+#' 
+#' Checking if the first and second columns contain the same values. If yes, we can eliminate one of them.
+#' 
+#' By writing the below code, we can be sure that the first two columns are indeed the same. We will be removing one of these later when we look to cleanse the data.
+#' 
+## ----check_column--------------------------------------------------------
+#Checking if the first and second columns contain the same values.
+sum(ctg$LB != ctg$ï..LBE)
+
+
+#' 
+#' Let us download the description file to see what each column means. We see below the descriptions of each columns. We see that there are two classification columns - CLASS and NSP. For this project, we will be using NSP which categorizes the fetuses as Normal, Suspect or Pathologic.
+#' 
+## ----start_1-------------------------------------------------------------
+#Reading the description file - provides description of each columns
+ctg_description <- read.table(
+  "https://raw.githubusercontent.com/rajashekarv95/cardiotocography_edx_capstone/master/ctg_description.csv",
+  header = TRUE,sep = ",")
+
+#Examining the description file
+kable(ctg_description)
+
+
+#' 
+#' This data set can be used for a 10 class as well as a 3 class classification problem. Since the volume is very less to perform a 10 class classification, I am here considering only the 3 class variable. 
+#' 
+#' The column is called NSP and it contains 3 values.
+#' 
+#' 1 - Normal(N)
+#' 2 - Suspect(S)
+#' 3 - Pathologic(P)
+#' 
+#' Let us see how the data is distributed across these three values. We see from the plot below that there is an imbalance. A greater percentage of the fetuses are normal with a few of them either suspect/pathologic.
+#' 
+## ----vis-----------------------------------------------------------------
+ctg %>% 
+  group_by(NSP) %>% summarize(count = n()) %>% 
+  ggplot(aes(NSP,count,label=count)) + 
+  geom_bar(stat = "identity", position = "dodge",fill="#77d5f2") + 
+  geom_label()
+
+
+#' 
+#' Looking at the percentage of data for each of these values, we see that almost 80% of the fetuses under consideration are normal.
+#' 
+#' As this is an imbalanced dataset, we cannot use accuracy as a metric of evaluation. We would be looking at Confusion Matrix, Precision, Recall and F1 score to evaluate the performance of the models we develop here.
+#' 
+## ----dist----------------------------------------------------------------
+num_of_datapoints <- length(ctg$LB)
+ctg %>% group_by(NSP) %>% 
+  summarize(count = n(), percentage = n()/num_of_datapoints)
+
+
+#' 
+#' 
+#' ##Data Cleansing
+#' 
+#' Removing unwanted columns and separating the feature columns and prediction columns.
+#' 
+#' 1. We remove ï..LBE as discussed previously that this is a duplicated column.
+#' 2. We remove DR as this column is 0 for all rows.
+#' 3. We remove CLASS as this is a 10 classification column and we will not be using it.
+#' 
+#' Post this, the dataset is split into two dataframes - one containing the feature columns and the other prediction column.
+#' 
+## ----data transformation-------------------------------------------------
+#Removing unwanted columns
+ctg <- ctg %>% dplyr :: select(-ï..LBE)
+ctg <- ctg %>% dplyr :: select(-DR)
+ctg <- ctg %>% dplyr :: select(-CLASS)
+
+#Splitting the feature and decision columns
+y <- ctg %>% dplyr :: select(NSP)
+ctg <- ctg %>% dplyr :: select(-NSP)
+
+
+#' 
+#' 
+#' Converting the feature dataframe matrix and checking its dimension.
+#' 
+## ----matrix_conversion---------------------------------------------------
+#Converting to matrix
+
+ctg <- as.matrix(ctg)
+dim(ctg)
+
+
+#' 
+## ----train_test_vis_1----------------------------------------------------
+ctg_melted_1 <- reshape :: melt(ctg)
+ggplot(data = ctg_melted_1, aes(x= X2,y = value)) + 
+  geom_boxplot() + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  labs(y="Value", x = "Feature")
+
+
+#' 
+#' As each feature is of a different scale, we perform standardization so that they are centered around 0. Scaling the feature variables and displaying the resulting dataframe
+#' 
+## ----scaling-------------------------------------------------------------
+#Scaling the feature variables
+x_centered <- sweep(ctg, 2, colMeans(ctg))
+x_scaled <- sweep(x_centered, 2, matrixStats :: colSds(ctg), FUN = "/")
+
+summary(x_scaled)
+
+
+#' 
+#' ##Create Train and Test sets
+#' 
+#' We now create train and test datasets. Training set will have 80% of the data and testing the rest.
+#' 
+## ----train_test----------------------------------------------------------
+#Create train and validation dataset
+set.seed(1, sample.kind="Rounding")
+test_index <- createDataPartition(y = y$NSP, times = 1, p = 0.2, list = FALSE)
+x_train <- x_scaled[-test_index,]
+x_test <- x_scaled[test_index,]
+y_train <- y$NSP[-test_index]
+y_test <- y$NSP[test_index]
+
+#Converting the result variables into alphabetical from numeric
+y_train_alpha <- if_else(y_train == 1,"N",if_else(y_train==2,"S","P"))
+y_test_alpha <- if_else(y_test == 1,"N",if_else(y_test ==2,"S","P"))
+
+
+#' 
+#' 
+#' Examine the train and test data created to ensure the same proportion
+#' 
+## ----train_test_vis_2----------------------------------------------------
+#Check if the split has occured proportionally
+table(y_train_alpha)/length(y_train_alpha)
+table(y_test_alpha)/length(y_test_alpha)
+
+
+#' 
+#' ##Exploratory Data Analysis
+#' 
+#' Examine the dsitributions of different feature variables.
+#' 
+## ----train_test_vis_3----------------------------------------------------
+#Melting the dataframe before plotting the distributions.
+ctg_melted <- reshape::melt(x_train)
+
+ggplot(data = ctg_melted, aes(x = value)) + 
+  geom_density() + 
+  facet_wrap(~X2, scales = "free")
+
+
+
+#' 
+#' 
+#' Let us look at the same on a boxplot.
+#' 
+## ----train_test_vis------------------------------------------------------
+ggplot(data = ctg_melted, aes(x= X2,y = value)) + geom_boxplot()
+
+
+#' 
+#' 
+#' 
+#' Let us now find the correlations between all the different feature valriables and plot them as a heatmap. I am using the corrplot to plot the correlations. 
+#' 
+## ----corr----------------------------------------------------------------
+# calculate a correlation matrix for numeric variables
+correlations <- cor(x_train)
+library(corrplot)
+corrplot(correlations, order = "hclust",method = "color")
+
+#' 
+#' Looking at distribution 
+#' 
+## ----corr_table----------------------------------------------------------
+as.data.frame(table(y_train_alpha)) %>% 
+  ggplot(aes(x= y_train_alpha, y = Freq)) + 
+  geom_bar(stat = "identity")
+
+#' 
+#' 
+#' Looking at jitter plot of the distribution of all features. We can see there is somewhat clear demarcation between the different classification variables. Mean, mode, median, ALTV, MSTV all have a clear demarcation. Let us see these are the variables which are of most importance to classification algorithms. 
+#' 
+## ----jitter_1------------------------------------------------------------
+df_jitter <- as.data.frame(x_train)
+df_jitter$NSP <- y_train_alpha
+df_jitter <- tidyr::gather(df_jitter,"feature","value",1:21)
+
+df_jitter %>% ggplot(aes(x=feature,y=value,color=NSP)) + 
+  geom_jitter(position=position_jitter(0.35)) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+#' 
+#' 
+#' 
+#' Let us now define a list of models to train the dataset on and train it for each of them. We look at the training accuracies and decide which model to use for prediction.  
+#' 
+#' We earlier decided to use metrics(Sensitivity, Specificity, Precision and Recall) other than accuracy to choose which model we want to finalize on. There is no default function currently which does this on the training set. We just get the trained accuracy from the caret trained model and not the other metrics we need. In order to find the other metrics and ensure that we don't use the test dataset for this, we further divide the train dataset into 80:20, 80% of which we use for training and the rest 20% to calculate the abovesaid metrics. 
+#' 
+#' 
+#' We further split the train data to calculate the metrics described above. 
+#' 
+## ----jitter--------------------------------------------------------------
+#Create interim train and test set using the train set to calculate the metrics required.
+set.seed(1, sample.kind="Rounding")
+test_index_new <- createDataPartition(y = y_train_alpha, times = 1, p = 0.2, list = FALSE)
+
+x_train_new <- x_train[-test_index_new,]
+x_test_new <- x_train[test_index_new,]
+y_train_new <- y_train_alpha[-test_index_new]
+y_test_new <- y_train_alpha[test_index_new]
+
+
+#' 
+#' 
+#' ##Model Training
+#' We train the models on the new train data we have created, predict using the interim test data and record the necessary metrics. 
+#' 
+## ----model_list,results = 'hide',warning=FALSE---------------------------
+#Define model list
+
+#model_list <- c("rpart")
+#model_list <- c("rf","rpart","knn","nb","pda")
+model_list <- c("rpart","lda","rf","nnet","nb",
+               "pda","treebag","xgbTree","knn","avNNet","mlp",
+              "svmPoly","AdaBag","AdaBoost.M1")
+
+#Define a data frame to store the models and its evaluation metrics
+df_models <- data.frame(model_name=character(),
+                        train_accuracy=double(),accuracy=double(),F1_A=double(),
+                        F1_B=double(),F1_C=double(),
+                        precision_N=double(),precision_S=double(),precision_S=double(),
+                        recall_N=double(),recall_S=double(),recall_P=double(),
+                        specificity_N=double(),specificity_S=double(),specificity_P=double(),
+                        sensitivity_N=double(),sensitivity_S=double(),sensitivity_P=double(),
+                        stringsAsFactors=FALSE)
+
+pred_list <- vector()
+i <- 1
+for(model in model_list){
+    train_control <- trainControl(method="cv")
+    model_train <- caret :: train(x_train_new,as.factor(y_train_new),  
+                         method = model, trControl = train_control)
+    train_accuracy <- max(model_train$results$Accuracy)
+    pred <- predict(model_train, x_test_new)
+    pred_list[i] <- list(pred)
+    i <- i + 1
+    print(model)
+    conf_mat <- caret :: confusionMatrix(data = pred, reference = as.factor(y_test_new))
+    
+    accuracy <- conf_mat$overall["Accuracy"]
+    
+    F1_N <- conf_mat$byClass["Class: N","F1"]
+    F1_S <- conf_mat$byClass["Class: S","F1"]
+    F1_P <- conf_mat$byClass["Class: P","F1"]
+    
+    precision_N <- conf_mat$byClass["Class: N","Precision"]
+    precision_S <- conf_mat$byClass["Class: S","Precision"]
+    precision_P <- conf_mat$byClass["Class: P","Precision"]
+    
+    recall_N <- conf_mat$byClass["Class: N","Recall"]
+    recall_S <- conf_mat$byClass["Class: S","Recall"]
+    recall_P <- conf_mat$byClass["Class: P","Recall"]
+    
+    specificity_N <- conf_mat$byClass["Class: N","Specificity"]
+    specificity_S <- conf_mat$byClass["Class: S","Specificity"]
+    specificity_P <- conf_mat$byClass["Class: P","Specificity"]
+    
+    sensitivity_N <- conf_mat$byClass["Class: N","Sensitivity"]
+    sensitivity_S <- conf_mat$byClass["Class: S","Sensitivity"]
+    sensitivity_P <- conf_mat$byClass["Class: P","Sensitivity"]
+    
+    new_row <- data.frame(model_name = model, train_accuracy = train_accuracy,accuracy = accuracy,
+                          F1_N = F1_N,F1_S = F1_S,F1_P = F1_P,
+                          precision_N = precision_N,precision_S = precision_S,
+                          precision_P = precision_P,
+                          recall_N = recall_N,recall_S = recall_S,recall_P = recall_P,
+                          specificity_N = specificity_N ,specificity_S = specificity_S ,
+                          specificity_P = specificity_P ,
+                          sensitivity_N = sensitivity_N ,sensitivity_S = sensitivity_S ,
+                          sensitivity_P = sensitivity_P
+    )
+    df_models <- rbind(df_models,new_row)
+}
+
+
+#' 
+#' 
+#' Checking the accuracy on the intermediate test set.
+## ----visualize_results_train_accuracy------------------------------------
+  melt(df_models) %>% filter(variable == "accuracy") %>%
+  ggplot(aes(model_name,round(value,2),label=round(value,2))) + 
+  geom_bar(stat = "identity", position = "dodge",fill="#77d5f2") + 
+  geom_label()+ 
+  labs(y="Accuracy", x = "Model Name")+ 
+  coord_cartesian(ylim = c(0.75, 0.98))
+
+
+#' 
+#' Examining the other metrics based on the intermediate test set(Note that this doesn't use the final test set. The final test set remains unknown).
+## ----visualize_results---------------------------------------------------
+ melt(df_models) %>% ggplot(aes(model_name,variable)) + 
+  geom_tile(aes(fill =value))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#' 
+#' 
+#' From the above tile chart we see that 'AdaBoost.M1' has the highest sensitivity for pathologic and suspect classification, meaning this most identifies the pathologic fetuses. It also has a high value of specificity which shows that this model also correctly identifies the healthy fetuses.
+#' 
+#' 
+#' ##Conclusion and Results
+#' Let us now combine the intermediate train and test sets and train the model again. We now run the prediction only for this model and on the unseen test set.
+## ----train_final---------------------------------------------------------
+train_control <- trainControl(method="cv")
+model_train <- caret :: train(x_train,as.factor(y_train_alpha),  
+                     method = "AdaBoost.M1", trControl = train_control)
+
+#' 
+#' Using the above model, let us predict the cases for the unseen test set and see how the confusion matrix looks like. We achieve a final accuracy of 92.49% on the test set. On observing the confusion matrix, we see that 3 of the pathologic fetuses are predicted as normal. Although this number seems to tbe very small, this is an area of concern and a base for further improvements.This model accurately detects 30 out of the 34 pathologic fetuses as pathologic which is a good measure to evaluate this algorithm.
+#' 
+#' Out of the 330 normal fetuses, this model detects 329 of them as normal or suspects and only 1 to be pathologic. This ensures that normal fetuses are not unnecessarily and incorrectly detected as pathologic. 
+#' 
+#' These two evaluation metrics take into account for the bias in the distribution of the classification variable.
+#' 
+## ----predict-------------------------------------------------------------
+pred <- predict(model_train, x_test)
+conf_mat <- caret :: confusionMatrix(data = pred, reference = as.factor(y_test_alpha))
+conf_mat
+
+#' 
+#' ##Further Improvements
+#' As a part of this project, I have tried to implement PCA as there were some correlated dimensions. That, however, did not yield acceptable results. The reason for this is still not clear. I would like to try out some more feature reduction techniques and compare the results obtained. I would also like to go deeper into working of PCA to determine why it did not work for this dataset.
